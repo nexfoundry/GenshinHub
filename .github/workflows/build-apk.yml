@@ -14,7 +14,7 @@ jobs:
       - name: Extract project
         run: |
           unzip -q GenshinHubAndroid_phone_build.zip -d extracted
-          cp -R extracted/GenshinHubAndroid/* ./
+cp -R extracted/. ./
 
       - name: Setup Java
         uses: actions/setup-java@v4
