@@ -19,34 +19,42 @@ jobs:
 
           unzip -q GenshinHubAndroid_phone_build.zip -d extracted
 
-          echo "ZIP contents:"
-          find extracted -maxdepth 4 -type f | sort
-
-          # Copy Android project to repository root
           cp -R extracted/GenshinHubAndroid/. ./
 
-      - name: Fix compileSdk
+      - name: Fix Android configuration
         run: |
-          echo "Before:"
-          grep -R "compileSdk" -n app build.gradle.kts 2>/dev/null || true
+          echo "=== Original configuration ==="
+          grep -R -n -E "compileSdk|sourceCompatibility|targetCompatibility|jvmTarget" \
+            app/*.gradle* 2>/dev/null || true
 
           # AndroidX Core 1.17 requires compileSdk 36+
-          find app -name "*.gradle" -o -name "*.gradle.kts" | while read file; do
-            sed -i -E 's/compileSdk[[:space:]]*=[[:space:]]*35/compileSdk = 36/g' "$file"
-          done
+          find app -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -exec sed -i -E \
+            's/compileSdk[[:space:]]*=[[:space:]]*35/compileSdk = 36/g' {} \;
 
-          echo "After:"
-          grep -R "compileSdk" -n app build.gradle.kts 2>/dev/null || true
+          # Force Java 17 instead of Java 8
+          find app -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -exec sed -i \
+            's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' {} \;
+
+          # Force Kotlin JVM target 17
+          find app -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -exec sed -i -E \
+            's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/jvmTarget = "17"/g' {} \;
+
+          echo "=== Fixed configuration ==="
+          grep -R -n -E "compileSdk|sourceCompatibility|targetCompatibility|jvmTarget" \
+            app/*.gradle* 2>/dev/null || true
 
       - name: Check Android project
         run: |
-          echo "Project root:"
+          echo "=== Project ==="
           ls -la
 
-          echo "App:"
+          echo "=== App ==="
           ls -la app
 
-          echo "Gradle files:"
+          echo "=== Gradle files ==="
           find . -maxdepth 3 -name "*.gradle*" -type f -print
 
       - name: Setup Java 17
@@ -57,6 +65,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK 36
         run: |
@@ -64,12 +74,17 @@ jobs:
           sdkmanager "platforms;android-36"
           sdkmanager "build-tools;36.0.0"
 
-          yes | sdkmanager --licenses || true
+          yes | sdkmanager --licenses >/dev/null || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
+
+      - name: Verify Java
+        run: |
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
 
       - name: Build Debug APK
         run: |
@@ -77,7 +92,7 @@ jobs:
 
       - name: Check APK
         run: |
-          echo "Generated APK:"
+          echo "=== Generated APK ==="
           find app/build/outputs -type f -name "*.apk" -print
 
       - name: Upload APK
