@@ -19,62 +19,110 @@ jobs:
 
           unzip -q GenshinHubAndroid_phone_build.zip -d extracted
 
-          # دعم الحالتين:
-          # 1. المشروع داخل GenshinHubAndroid
-          # 2. المشروع موجود مباشرة داخل ZIP
           if [ -d extracted/GenshinHubAndroid ]; then
             cp -R extracted/GenshinHubAndroid/. ./
           else
             cp -R extracted/. ./
           fi
 
-      - name: Fix Android configuration
+      - name: Configure Android Java 17
         shell: bash
         run: |
-          echo "=== Original configuration ==="
+          python3 <<'PY'
+          from pathlib import Path
 
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -not -path "./.git/*" \
-            -exec grep -nH -E \
-            "compileSdk|sourceCompatibility|targetCompatibility|jvmTarget|VERSION_1_8" {} + || true
+          files = list(Path(".").rglob("*.gradle.kts")) + list(Path(".").rglob("*.gradle"))
 
-          echo "=== Applying fixes ==="
+          for path in files:
+              if ".git" in path.parts:
+                  continue
 
-          # compileSdk 36
+              text = path.read_text()
+
+              # Remove old Java 8 configuration if present
+              text = text.replace(
+                  "JavaVersion.VERSION_1_8",
+                  "JavaVersion.VERSION_17"
+              )
+
+              text = text.replace(
+                  'sourceCompatibility = JavaVersion.VERSION_1_8',
+                  'sourceCompatibility = JavaVersion.VERSION_17'
+              )
+
+              text = text.replace(
+                  'targetCompatibility = JavaVersion.VERSION_1_8',
+                  'targetCompatibility = JavaVersion.VERSION_17'
+              )
+
+              # Add explicit Android Java 17 compile options
+              if "sourceCompatibility = JavaVersion.VERSION_17" not in text:
+                  if "android {" in text:
+                      text = text.replace(
+                          "android {",
+                          """android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          """,
+                          1
+                      )
+
+              path.write_text(text)
+
+              print(f"Configured: {path}")
+          PY
+
+          echo "=== Checking Java/Kotlin configuration ==="
+
+          grep -R -n -E \
+            "compileOptions|sourceCompatibility|targetCompatibility|jvmTarget|VERSION_1_8" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            . || true
+
+      - name: Configure compileSdk 36
+        shell: bash
+        run: |
           find . -type f \
             \( -name "*.gradle" -o -name "*.gradle.kts" \) \
             -not -path "./.git/*" \
             -exec sed -i -E \
             's/compileSdk[[:space:]]*=[[:space:]]*35/compileSdk = 36/g' {} +
 
-          # Java 8 -> Java 17
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -not -path "./.git/*" \
-            -exec sed -i -E \
-            's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+          echo "=== compileSdk ==="
 
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -not -path "./.git/*" \
-            -exec sed -i -E \
-            's/(sourceCompatibility|targetCompatibility)[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/\1 = "17"/g' {} +
+          grep -R -n \
+            "compileSdk" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            . || true
 
-          # Kotlin JVM 1.8 -> 17
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -not -path "./.git/*" \
-            -exec sed -i -E \
-            's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/jvmTarget = "17"/g' {} +
+      - name: Configure Kotlin JVM 17
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
 
-          echo "=== Final configuration ==="
+          for path in list(Path(".").rglob("*.gradle.kts")) + list(Path(".").rglob("*.gradle")):
+              if ".git" in path.parts:
+                  continue
 
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -not -path "./.git/*" \
-            -exec grep -nH -E \
-            "compileSdk|sourceCompatibility|targetCompatibility|jvmTarget|VERSION_1_8" {} + || true
+              text = path.read_text()
+
+              text = text.replace(
+                  'jvmTarget = "1.8"',
+                  'jvmTarget = "17"'
+              )
+
+              text = text.replace(
+                  "jvmTarget = '1.8'",
+                  "jvmTarget = '17'"
+              )
+
+              path.write_text(text)
+          PY
 
       - name: Check Android project
         run: |
