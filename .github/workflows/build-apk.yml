@@ -155,7 +155,43 @@ jobs:
 
           gradle --version
 
-      # 9. بناء APK
+      # 9. إنشاء Android Debug Keystore
+      #
+      # المشروع يستخدم debug.keystore مخصصًا في rootDir.
+      # GitHub Actions لا يحتوي عليه افتراضيًا، لذلك ننشئه أثناء البناء.
+      - name: Create Debug Keystore
+        run: |
+          set -e
+
+          echo "================================"
+          echo "DEBUG KEYSTORE"
+          echo "================================"
+
+          if [ -f "debug.keystore" ]; then
+            echo "debug.keystore already exists."
+          else
+            echo "Creating debug.keystore..."
+
+            keytool \
+              -genkeypair \
+              -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+
+            echo "debug.keystore created successfully."
+          fi
+
+          echo ""
+          echo "Keystore:"
+          ls -lh debug.keystore
+
+      # 10. بناء APK
       - name: Build Debug APK
         run: |
           set -e
@@ -170,7 +206,7 @@ jobs:
             --warning-mode all \
             :app:assembleDebug
 
-      # 10. التأكد من إنشاء APK
+      # 11. التأكد من إنشاء APK
       - name: Check APK
         run: |
           set -e
@@ -202,7 +238,7 @@ jobs:
 
           ls -lh "$APK_PATH"
 
-      # 11. رفع APK
+      # 12. رفع APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
