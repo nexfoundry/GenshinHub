@@ -3,17 +3,26 @@ name: Build Genshin HUB APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      # 1. تحميل المستودع
+
+      # =========================================================
+      # 1. Checkout repository
+      # =========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. استخراج مشروع Android من ملف ZIP
+
+      # =========================================================
+      # 2. Extract Android project
+      # =========================================================
       - name: Extract Android project
         run: |
           set -e
@@ -29,6 +38,7 @@ jobs:
 
           if [ ! -f "GenshinHubAndroid_UI_v2.zip" ]; then
             echo "ERROR: GenshinHubAndroid_UI_v2.zip was not found."
+            echo ""
             echo "Available ZIP files:"
             find . -maxdepth 2 -type f -iname "*.zip" -print
             exit 1
@@ -45,10 +55,10 @@ jobs:
           echo "Extracted files:"
           find extracted -maxdepth 3 -type f | head -100
 
-          # Handle both possible ZIP structures
+          # Handle nested or root project structure
           if [ -d "extracted/GenshinHubAndroid" ]; then
             echo ""
-            echo "Nested project detected."
+            echo "Nested Android project detected."
             cp -R extracted/GenshinHubAndroid/. ./
           else
             echo ""
@@ -56,7 +66,10 @@ jobs:
             cp -R extracted/. ./
           fi
 
-      # 3. التحقق من وجود مشروع Android
+
+      # =========================================================
+      # 3. Verify Android project
+      # =========================================================
       - name: Verify Android project
         run: |
           set -e
@@ -75,6 +88,7 @@ jobs:
 
           echo ""
           echo "App directory:"
+
           if [ -d "app" ]; then
             ls -la app
           else
@@ -85,8 +99,13 @@ jobs:
           echo ""
           echo "Gradle files:"
           find . -maxdepth 5 \
-            \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "gradle.properties" \) \
-            -type f -print
+            \( \
+              -name "*.gradle" \
+              -o -name "*.gradle.kts" \
+              -o -name "gradle.properties" \
+            \) \
+            -type f \
+            -print
 
           echo ""
           echo "AndroidManifest:"
@@ -95,7 +114,10 @@ jobs:
           echo ""
           echo "Gradle wrapper:"
           find . -maxdepth 4 \
-            \( -name "gradlew" -o -name "gradle-wrapper.properties" \) \
+            \( \
+              -name "gradlew" \
+              -o -name "gradle-wrapper.properties" \
+            \) \
             -print
 
           if [ ! -f "settings.gradle.kts" ] && [ ! -f "settings.gradle" ]; then
@@ -103,38 +125,92 @@ jobs:
             exit 1
           fi
 
-      # 4. إعداد Java 17
+          if [ ! -f "app/build.gradle.kts" ] && [ ! -f "app/build.gradle" ]; then
+            echo "ERROR: app/build.gradle.kts or app/build.gradle was not found."
+            exit 1
+          fi
+
+          echo ""
+          echo "Android project verification completed successfully."
+
+
+      # =========================================================
+      # 4. Setup Java 17
+      # =========================================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # 5. إعداد Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
-      # 6. تثبيت Android SDK 36
+      # =========================================================
+      # 5. Setup Android SDK
+      #
+      # IMPORTANT:
+      # packages: '' prevents the action from trying to install
+      # the obsolete "tools" package.
+      # =========================================================
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+          accept-android-sdk-licenses: "true"
+          log-accepted-android-sdk-licenses: "false"
+
+
+      # =========================================================
+      # 6. Install required Android SDK packages
+      # =========================================================
       - name: Install Android SDK 36
         run: |
           set -e
 
+          echo "================================"
+          echo "ANDROID SDK"
+          echo "================================"
+
+          echo ""
+          echo "SDK root:"
+          echo "$ANDROID_SDK_ROOT"
+
+          echo ""
+          echo "Installing platform-tools..."
           sdkmanager "platform-tools"
+
+          echo ""
+          echo "Installing Android 36 platform..."
           sdkmanager "platforms;android-36"
+
+          echo ""
+          echo "Installing Build Tools 36.0.0..."
           sdkmanager "build-tools;36.0.0"
 
+          echo ""
+          echo "Accepting Android SDK licenses..."
           yes | sdkmanager --licenses >/dev/null || true
 
-      # 7. إعداد Gradle 9.3.1
-      #
-      # AGP 9.1.1 يحتاج Gradle 9.3.1 أو أحدث.
+          echo ""
+          echo "Installed SDK packages:"
+          sdkmanager --list_installed || true
+
+          echo ""
+          echo "Android SDK setup completed successfully."
+
+
+      # =========================================================
+      # 7. Setup Gradle
+      # =========================================================
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
 
-      # 8. التحقق من Java و Gradle
-      - name: Verify Java and Gradle
+
+      # =========================================================
+      # 8. Verify Java, Android SDK and Gradle
+      # =========================================================
+      - name: Verify build environment
         run: |
           set -e
 
@@ -150,15 +226,32 @@ jobs:
 
           echo ""
           echo "================================"
+          echo "ANDROID SDK"
+          echo "================================"
+
+          echo "ANDROID_HOME:"
+          echo "$ANDROID_HOME"
+
+          echo ""
+          echo "ANDROID_SDK_ROOT:"
+          echo "$ANDROID_SDK_ROOT"
+
+          echo ""
+          echo "sdkmanager:"
+          which sdkmanager
+          sdkmanager --version
+
+          echo ""
+          echo "================================"
           echo "GRADLE"
           echo "================================"
 
           gradle --version
 
-      # 9. إنشاء Android Debug Keystore
-      #
-      # المشروع يستخدم debug.keystore مخصصًا في rootDir.
-      # GitHub Actions لا يحتوي عليه افتراضيًا، لذلك ننشئه أثناء البناء.
+
+      # =========================================================
+      # 9. Create Debug Keystore
+      # =========================================================
       - name: Create Debug Keystore
         run: |
           set -e
@@ -191,7 +284,27 @@ jobs:
           echo "Keystore:"
           ls -lh debug.keystore
 
-      # 10. بناء APK
+
+      # =========================================================
+      # 10. Make Gradle wrapper executable if present
+      # =========================================================
+      - name: Prepare Gradle wrapper
+        run: |
+          set -e
+
+          if [ -f "./gradlew" ]; then
+            echo "Gradle wrapper found."
+            chmod +x ./gradlew
+            ./gradlew --version
+          else
+            echo "No Gradle wrapper found."
+            echo "Using installed Gradle version."
+          fi
+
+
+      # =========================================================
+      # 11. Build Debug APK
+      # =========================================================
       - name: Build Debug APK
         run: |
           set -e
@@ -200,13 +313,32 @@ jobs:
           echo "BUILDING GENSHIN HUB APK"
           echo "================================"
 
-          gradle \
-            --no-daemon \
-            --stacktrace \
-            --warning-mode all \
-            :app:assembleDebug
+          if [ -f "./gradlew" ]; then
 
-      # 11. التأكد من إنشاء APK
+            echo "Building with Gradle Wrapper..."
+
+            ./gradlew \
+              --no-daemon \
+              --stacktrace \
+              --warning-mode all \
+              :app:assembleDebug
+
+          else
+
+            echo "Building with installed Gradle..."
+
+            gradle \
+              --no-daemon \
+              --stacktrace \
+              --warning-mode all \
+              :app:assembleDebug
+
+          fi
+
+
+      # =========================================================
+      # 12. Check APK
+      # =========================================================
       - name: Check APK
         run: |
           set -e
@@ -214,6 +346,9 @@ jobs:
           echo "================================"
           echo "GENERATED APK FILES"
           echo "================================"
+
+          echo ""
+          echo "Searching for APK files..."
 
           find app/build/outputs \
             -type f \
@@ -223,22 +358,35 @@ jobs:
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK_PATH" ]; then
+
             echo ""
             echo "ERROR: app-debug.apk was not generated."
 
             echo ""
             echo "Available build outputs:"
-            find app/build/outputs -type f -print || true
+            find app/build/outputs \
+              -type f \
+              -print || true
 
             exit 1
+
           fi
 
           echo ""
-          echo "APK successfully generated."
+          echo "================================"
+          echo "APK SUCCESSFULLY GENERATED"
+          echo "================================"
 
           ls -lh "$APK_PATH"
 
-      # 12. رفع APK
+          echo ""
+          echo "APK path:"
+          echo "$APK_PATH"
+
+
+      # =========================================================
+      # 13. Upload APK
+      # =========================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
